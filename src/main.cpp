@@ -15,6 +15,7 @@ const int pileOfset = 2;
 int receiveMonday = 0;
 int processMonday = 0;
 int currentDay = 1;
+int shelfOfset = (pileLeds * 4) + (pileOfset * 4) + 4;
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 RTC_DS3231 rtc;
@@ -22,6 +23,7 @@ RTC_DS3231 rtc;
 
 void dateTimeInput(){
 
+ // Input data has to be in the format "YYYY-MM-DD HH:MM:SS"
   String date_string = Serial.readStringUntil('\n');
   String time_string = Serial.readStringUntil('\n');
 
@@ -163,6 +165,7 @@ void loop() {
         for (int j = 0; j < pileLeds; j++) {
 
             strip.setPixelColor((pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]);
+            strip.setPixelColor(((pileOfset * i) + (pileLeds * i) + j) + shelfOfset , color[0][0], color[0][1], color[0][2]);
             
     }
 

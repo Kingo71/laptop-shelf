@@ -5,12 +5,12 @@
 #include <RTClib.h>
 
 #define LED_PIN 6
-#define LED_COUNT 20
+#define LED_COUNT 180 // Total number of leds
 #define RTC_SDA A4
 #define RTC_SCL A5
 
-const int pileLeds = 3;
-const int pileOfset = 2;
+const int pileLeds = 15; // Leds per pile
+const int pileOfset = 2; // Pile offset
 
 int receiveMonday = 0;
 int processMonday = 0;
@@ -58,7 +58,7 @@ void loop() {
   }
 
   // Determine which week of the month today falls into
-  // int currentDay = 20; //now.day();
+  int currentDay = now.day();
   int weekOfMonth = 0;
   if (currentDay >= firstMonday && currentDay < (firstMonday + 7))
     weekOfMonth = 1;
@@ -72,7 +72,7 @@ void loop() {
     weekOfMonth = 5;
 
   // Print the week of the month
-  Serial.print(String(currentDay) + " Today falls into the ");
+  Serial.print("Cuurrent Day: " + String(currentDay) + " Today falls into the ");
   switch (weekOfMonth) {
     case 1:
       Serial.println("1st Monday of the month.");
@@ -130,8 +130,9 @@ void loop() {
 
         for (int j = 0; j < pileLeds; j++) {
 
-            strip.setPixelColor((pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]);
-            
+            strip.setPixelColor((pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]); // Set the color of the LED
+            int nextShelf = (pileOfset * 4) + (pileLeds * 4) + 4;
+            strip.setPixelColor(nextShelf + (pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]); // Set the color of the second shelf LED  
     }
 
 

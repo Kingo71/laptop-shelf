@@ -21,9 +21,16 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 RTC_DS3231 rtc;
 
 
+/**
+ * Reads a date and time input from the serial monitor and sets the RTC date and time accordingly.
+ *
+ * @return void
+ *
+ * @throws None
+ */
 void dateTimeInput(){
 
- // Input data has to be in the format "YYYY-MM-DD HH:MM:SS"
+  // Input data has to be in the format "YYYY-MM-DD HH:MM:SS"
   String date_string = Serial.readStringUntil('\n');
   String time_string = Serial.readStringUntil('\n');
 
@@ -75,6 +82,21 @@ void setup() {
 
 void loop() {
   DateTime now = rtc.now();
+
+  // Check if the current day is Sunday (0) or Saturday (6), or if the current hour is outside of 7-18 (working hours)
+  if ((now.dayOfTheWeek() == 0 || now.dayOfTheWeek() == 6) || (now.hour() < 7 || now.hour() > 18))
+  {
+  
+    // If it's outside of working hours, turn off all pixels
+    strip.clear(); // Set all pixel colors to 'off'
+    strip.show();  // Send the updated pixel colors to the hardware.
+    delay(1000); // Wait for one second
+  
+    return; // End the current iteration of the loop
+  
+  }
+
+
   strip.clear();
   
   // Get the current month and year

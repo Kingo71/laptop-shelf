@@ -165,14 +165,14 @@ void loop() {
     
     int color[0][3] = {};
     
-    color[0][0] = 150;
+    color[0][0] = 75;
     color[0][1] = 0;
     color[0][2] = 0;  
 
     if ((i + 1) == receiveMonday ){
 
         color[0][0] = 0;
-        color[0][1] = 150;
+        color[0][1] = 75;
         color[0][2] = 0;
 
     }
@@ -181,7 +181,7 @@ void loop() {
 
         color[0][0] = 0;
         color[0][1] = 0;
-        color[0][2] = 150;
+        color[0][2] = 75;
     }
 
         for (int j = 0; j < pileLeds; j++) {

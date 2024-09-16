@@ -30,7 +30,7 @@ RTC_DS3231 rtc;
  */
 void dateTimeInput(){
 
-  // Input data has to be in the format "YYYY-MM-DD HH:MM:SS"
+  // Input data has to be in the format "YYYY-MM-DD\n HH:MM:SS\n"
   String date_string = Serial.readStringUntil('\n');
   String time_string = Serial.readStringUntil('\n');
 
@@ -69,6 +69,7 @@ void setup() {
   Serial.begin(9600);
 
 
+
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
     while (1);
@@ -91,7 +92,21 @@ void loop() {
     strip.clear(); // Set all pixel colors to 'off'
     strip.show();  // Send the updated pixel colors to the hardware.
     delay(1000); // Wait for one second
-  
+    // Print the date just stored in the RTC
+    Serial.print("Date stored in RTC: ");
+    Serial.print(rtc.now().year(), DEC);
+    Serial.print("-");
+    Serial.print(rtc.now().month(), DEC);
+    Serial.print("-");
+    Serial.print(rtc.now().day(), DEC);
+    Serial.println();
+
+    Serial.println("outside of working hours");
+    if (Serial.available()) {
+    
+    dateTimeInput();
+
+    }
     return; // End the current iteration of the loop
   
   }

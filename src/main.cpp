@@ -1,224 +1,284 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
-#include <SPI.h>
-#include <RTClib.h>
+#include <RTClib.h> // Ensure Adafruit RTClib is installed
 
-#define LED_PIN 6
-#define LED_COUNT 180 // Total number of leds
-#define RTC_SDA A4
-#define RTC_SCL A5
+// --- Hardware Configuration ---
+#define LED_PIN         6
+#define LED_COUNT       180 // Total number of leds
+#define LED_BRIGHTNESS  50  // Safety: 0-255. 180 LEDs can draw high current!
 
-const int pileLeds = 15; // Leds per pile
-const int pileOfset = 2; // Pile offset
+// --- Shelf Layout Configuration ---
+const int pileLeds = 15;    // Leds per pile
+const int pileOffset = 2;   // LED gap between piles
+// Calculate shelf offset dynamically to prevent magic numbers
+const int shelfOffset = (pileLeds * 4) + (pileOffset * 4) + 4;
 
-int receiveMonday = 0;
-int processMonday = 0;
-int currentDay = 1;
-int shelfOfset = (pileLeds * 4) + (pileOfset * 4) + 4;
-
+// --- Global Objects ---
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 RTC_DS3231 rtc;
 
+// --- State Variables ---
+int receiveMonday = 0;
+int processMonday = 0;
+int currentDayCached = -1; // To track if date changed
+unsigned long lastUpdate = 0;
+const long updateInterval = 1000; // Update LEDs every 1 second
+String inputBuffer = ""; // Buffer for incoming serial data
 
-/**
- * Reads a date and time input from the serial monitor and sets the RTC date and time accordingly.
- *
- * @return void
- *
- * @throws None
- */
-void dateTimeInput(){
-
-  // Input data has to be in the format "YYYY-MM-DD\n HH:MM:SS\n"
-  String date_string = Serial.readStringUntil('\n');
-  String time_string = Serial.readStringUntil('\n');
-
-  int year = date_string.substring(0, 4).toInt();
-  int month = date_string.substring(5, 7).toInt();
-  int day = date_string.substring(8, 10).toInt();
-  int hour = time_string.substring(0, 2).toInt();
-  int minute = time_string.substring(3, 5).toInt();
-  int second = time_string.substring(6, 8).toInt();
-
-  DateTime dt(year, month, day, hour, minute, second);
-
-  if (dt.year() < 2000 || dt.year() > 2099 || dt.month() < 1 || dt.month() > 12 || dt.day() < 1 || dt.day() > 31 || dt.hour() < 0 || dt.hour() > 23 || dt.minute() < 0 || dt.minute() > 59 || dt.second() < 0 || dt.second() > 59) {
-    Serial.println("Invalid date or time entered!");
-  } else {
-    rtc.adjust(dt);
-    Serial.println("RTC date and time set!");
-
-    // Print the date just stored in the RTC
-    Serial.print("Date just stored in RTC: ");
-    Serial.print(rtc.now().year(), DEC);
-    Serial.print("-");
-    Serial.print(rtc.now().month(), DEC);
-    Serial.print("-");
-    Serial.print(rtc.now().day(), DEC);
-    Serial.println();
-
- }
-}
+// --- Function Prototypes ---
+void updateLedLogic(DateTime now);
+void handleSerialInput();
+void processSerialCommand(String command);
+int calculateWeekOfMonth(DateTime now);
+void setPileColor(int pileIndex, int r, int g, int b);
+void printStatus();
 
 void setup() {
-  
-  strip.begin();
-  strip.show();
-
   Serial.begin(9600);
 
+  // Initialize LEDs
+  strip.begin();
+  strip.setBrightness(LED_BRIGHTNESS);
+  strip.show(); // Initialize all pixels to 'off'
 
-
+  // Initialize RTC
   if (!rtc.begin()) {
-    Serial.println("Couldn't find RTC");
+    Serial.println(F("Error: Couldn't find RTC"));
+    // Flash red to indicate hardware failure
+    strip.fill(strip.Color(255, 0, 0));
+    strip.show();
     while (1);
   }
-  
+
   if (rtc.lostPower()) {
-    Serial.println("RTC lost power, let's set the time!");
+    Serial.println(F("RTC lost power, setting to compile time!"));
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
+  
+  Serial.println(F("System Online."));
+  Serial.println(F("To set time, type: YYYY-MM-DD HH:MM:SS"));
+  Serial.println(F("To get status, type: STATUS"));
+  Serial.println(F("Example: 2023-10-25 14:30:00"));
 }
 
 void loop() {
-  DateTime now = rtc.now();
+  // 1. Handle Serial Input (True Non-blocking accumulator)
+  handleSerialInput();
 
-  // Check if the current day is Sunday (0) or Saturday (6), or if the current hour is outside of 7-18 (working hours)
-  if ((now.dayOfTheWeek() == 0 || now.dayOfTheWeek() == 6) || (now.hour() < 7 || now.hour() > 18))
-  {
-  
-    // If it's outside of working hours, turn off all pixels
-    strip.clear(); // Set all pixel colors to 'off'
-    strip.show();  // Send the updated pixel colors to the hardware.
-    delay(1000); // Wait for one second
-    // Print the date just stored in the RTC
-    Serial.print("Date stored in RTC: ");
-    Serial.print(rtc.now().year(), DEC);
-    Serial.print("-");
-    Serial.print(rtc.now().month(), DEC);
-    Serial.print("-");
-    Serial.print(rtc.now().day(), DEC);
-    Serial.println();
-
-    Serial.println("outside of working hours");
-    if (Serial.available()) {
+  // 2. Handle Time-Based Logic (Non-blocking delay)
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastUpdate >= updateInterval) {
+    lastUpdate = currentMillis;
     
-    dateTimeInput();
+    DateTime now = rtc.now();
+    updateLedLogic(now);
+  }
+}
 
-    }
-    return; // End the current iteration of the loop
-  
+/**
+ * Main Logic to determine LED colors based on time
+ */
+void updateLedLogic(DateTime now) {
+  // Check Working Hours: Mon-Sat (1-6), 07:00 - 18:00
+  // Note: Library dayOfTheWeek(): 0=Sun, 1=Mon, ... 6=Sat
+  bool isWeekend = (now.dayOfTheWeek() == 0 || now.dayOfTheWeek() == 6); 
+  bool isWorkingHours = (now.hour() >= 7 && now.hour() <= 18);
+
+  // Debug Output
+  Serial.print(F("Time: "));
+  Serial.print(now.year()); Serial.print("-");
+  Serial.print(now.month()); Serial.print("-");
+  Serial.print(now.day()); Serial.print(" ");
+  Serial.print(now.hour()); Serial.println(F(":XX"));
+
+  if (isWeekend || !isWorkingHours) {
+    Serial.println(F("Status: Outside working hours (LEDs OFF)"));
+    strip.clear();
+    strip.show();
+    return;
   }
 
+  // Only recalculate week logic if the day has changed to save cycles
+  if (currentDayCached != now.day()) {
+    currentDayCached = now.day();
+    int weekOfMonth = calculateWeekOfMonth(now);
+
+    Serial.print(F("New Day Detected. Week of Month: "));
+    Serial.println(weekOfMonth);
+
+    // Week Logic Mapping
+    switch (weekOfMonth) {
+      case 1: receiveMonday = 1; processMonday = 2; break;
+      case 2: receiveMonday = 2; processMonday = 3; break;
+      case 3: receiveMonday = 3; processMonday = 4; break;
+      case 4: receiveMonday = 4; processMonday = 1; break;
+      default: receiveMonday = 4; processMonday = 1; break; // 5th week acts as 4th
+    }
+  }
 
   strip.clear();
-  
-  // Get the current month and year
-  int currentMonth = now.month();
-  int currentYear = now.year();
 
-  // Find the date of the first Monday of the current month
-  int firstMonday = 0;
-  for (int day = 1; day <= 7; day++) {
-    DateTime date(currentYear, currentMonth, day, 0, 0, 0);
-    if (date.dayOfTheWeek() == 1) {
-      firstMonday = day;
-      break;
-    }
-  }
-
-  // Determine which week of the month today falls into
-  int currentDay = now.day();
-  int weekOfMonth = 0;
-  if (currentDay >= firstMonday && currentDay < (firstMonday + 7))
-    weekOfMonth = 1;
-  else if (currentDay >= (firstMonday + 7) && currentDay < (firstMonday + 14))
-    weekOfMonth = 2;
-  else if (currentDay >= (firstMonday + 14) && currentDay < (firstMonday + 21))
-    weekOfMonth = 3;
-  else if (currentDay >= (firstMonday + 21) && currentDay < (firstMonday + 28))
-    weekOfMonth = 4;
-  else
-    weekOfMonth = 5;
-
-  // Print the week of the month
-  Serial.print("Cuurrent Day: " + String(currentDay) + " Today falls into the ");
-  switch (weekOfMonth) {
-    case 1:
-      Serial.println("1st Monday of the month.");
-      receiveMonday = 1;
-      processMonday = 2;
-      break;
-    case 2:
-      Serial.println("2nd Monday of the month.");
-      receiveMonday = 2;
-      processMonday = 3;
-      break;
-    case 3:
-      Serial.println("3rd Monday of the month.");
-      receiveMonday = 3;
-      processMonday = 4;
-      break;
-    case 4:
-      Serial.println("4th/5th Monday of the month.");
-      receiveMonday = 4;
-      processMonday = 1;
-      break;
-    case 5:
-      Serial.println("4th/5th Monday of the month.");
-      receiveMonday = 4;
-      processMonday = 1;
-      break;
-    default:
-      Serial.println("Monday of the month.");
-      break;
-  }
-  
-  
+  // Render Piles (0 to 3)
   for (int i = 0; i < 4; i++) {
-    
-    int color[0][3] = {};
-    
-    color[0][0] = 75;
-    color[0][1] = 0;
-    color[0][2] = 0;  
+    // Default Color: Red (Dimmed)
+    int r = 75, g = 0, b = 0;
 
-    if ((i + 1) == receiveMonday ){
-
-        color[0][0] = 0;
-        color[0][1] = 75;
-        color[0][2] = 0;
-
+    // Check Logic
+    // Note: i is 0-indexed, logic vars are 1-indexed
+    if ((i + 1) == receiveMonday) {
+      r = 0; g = 75; b = 0; // Green
+    }
+    if ((i + 1) == processMonday) {
+      r = 0; g = 0; b = 75; // Blue
     }
 
-    if ((i+ 1) == processMonday){
-
-        color[0][0] = 0;
-        color[0][1] = 0;
-        color[0][2] = 75;
-    }
-
-        for (int j = 0; j < pileLeds; j++) {
-
-            strip.setPixelColor((pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]); // Set the color of the LED
-            int nextShelf = (pileOfset * 4) + (pileLeds * 4) + 4;
-            strip.setPixelColor(nextShelf + (pileOfset * i) + (pileLeds * i) + j, color[0][0], color[0][1], color[0][2]); // Set the color of the second shelf LED  
-    }
-
-
-
-  }
-  
-  if (Serial.available()) {
-    
-    dateTimeInput();
-
+    setPileColor(i, r, g, b);
   }
 
   strip.show();
+}
+
+/**
+ * Helper to paint a specific pile and its corresponding shelf below
+ */
+void setPileColor(int pileIndex, int r, int g, int b) {
+  uint32_t color = strip.Color(r, g, b);
+
+  // Calculate starting index for this pile on top shelf
+  int startPixel = (pileOffset * pileIndex) + (pileLeds * pileIndex);
+
+  // Loop through LEDs in this pile
+  for (int j = 0; j < pileLeds; j++) {
+    // Top Shelf
+    strip.setPixelColor(startPixel + j, color);
+    
+    // Bottom Shelf (Mirrored position)
+    // Note: Verify your shelfOffset logic physically matches the strip layout!
+    strip.setPixelColor(shelfOffset + startPixel + j, color);
+  }
+}
+
+/**
+ * Calculates which week of the month the current date falls into
+ * based on the First Monday logic.
+ */
+int calculateWeekOfMonth(DateTime now) {
+  int currentMonth = now.month();
+  int currentYear = now.year();
+  int firstMondayDate = 0;
+
+  // Find date of the first Monday
+  for (int day = 1; day <= 7; day++) {
+    DateTime date(currentYear, currentMonth, day, 0, 0, 0);
+    if (date.dayOfTheWeek() == 1) { // 1 = Monday
+      firstMondayDate = day;
+      break;
+    }
+  }
+
+  int dom = now.day(); // Day of Month
+
+  // Determine week bracket
+  if (dom >= firstMondayDate && dom < (firstMondayDate + 7)) return 1;
+  if (dom >= (firstMondayDate + 7) && dom < (firstMondayDate + 14)) return 2;
+  if (dom >= (firstMondayDate + 14) && dom < (firstMondayDate + 21)) return 3;
+  if (dom >= (firstMondayDate + 21) && dom < (firstMondayDate + 28)) return 4;
   
+  return 5;
+}
+
+/**
+ * Accumulates serial characters into a buffer.
+ * Processes command only when Newline is received.
+ */
+void handleSerialInput() {
+  while (Serial.available() > 0) {
+    char inChar = (char)Serial.read();
+    
+    if (inChar == '\n') {
+      processSerialCommand(inputBuffer);
+      inputBuffer = ""; // Clear buffer
+    } else if (inChar != '\r') { 
+      // Append if not a carriage return
+      inputBuffer += inChar;
+    }
+  }
+}
+
+/**
+ * Parses the command string using sscanf for flexibility
+ * Expected format: "YYYY-MM-DD HH:MM:SS"
+ */
+void processSerialCommand(String command) {
+  command.trim(); // Remove leading/trailing whitespace
+
+  // Handle STATUS command
+  if (command.equalsIgnoreCase("STATUS")) {
+    printStatus();
+    return;
+  }
+
+  int year, month, day, hour, minute, second;
+
+  // sscanf parses the C-string. It ignores extra whitespace automatically.
+  // Returns number of successfully matched variables.
+  int n = sscanf(command.c_str(), "%d-%d-%d %d:%d:%d", 
+                 &year, &month, &day, &hour, &minute, &second);
+
+  if (n == 6) {
+    // Basic range validation
+    if (year < 2020 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31) {
+      Serial.println(F("Error: Invalid date range."));
+    } else {
+      rtc.adjust(DateTime(year, month, day, hour, minute, second));
+      Serial.print(F("Success: RTC updated to "));
+      Serial.println(command);
+      
+      // Force immediate logic update
+      lastUpdate = 0; 
+      currentDayCached = -1; 
+    }
+  } else {
+    Serial.println(F("Error: parsing failed."));
+    Serial.println(F("Format: YYYY-MM-DD HH:MM:SS or STATUS"));
+  }
+}
+
+/**
+ * Prints the current system status as a JSON string
+ */
+void printStatus() {
+  DateTime now = rtc.now();
   
-  delay(1000); // Wait for one second
+  Serial.print(F("{"));
   
+  // Time
+  Serial.print(F("\"datetime\":\""));
+  Serial.print(now.year()); Serial.print("-");
+  if(now.month() < 10) Serial.print("0"); Serial.print(now.month()); Serial.print("-");
+  if(now.day() < 10) Serial.print("0"); Serial.print(now.day()); Serial.print(" ");
+  if(now.hour() < 10) Serial.print("0"); Serial.print(now.hour()); Serial.print(":");
+  if(now.minute() < 10) Serial.print("0"); Serial.print(now.minute()); Serial.print(":");
+  if(now.second() < 10) Serial.print("0"); Serial.print(now.second());
+  Serial.print(F("\","));
+
+  // Logic
+  bool isWeekend = (now.dayOfTheWeek() == 0 || now.dayOfTheWeek() == 6); 
+  bool isWorkingHours = (now.hour() >= 7 && now.hour() <= 18);
+  bool ledsActive = !isWeekend && isWorkingHours;
+
+  Serial.print(F("\"leds_active\":"));
+  Serial.print(ledsActive ? "true" : "false");
+  Serial.print(F(","));
+
+  // Pile Status
+  Serial.print(F("\"receive_pile\":"));
+  Serial.print(receiveMonday);
+  Serial.print(F(","));
+
+  Serial.print(F("\"process_pile\":"));
+  Serial.print(processMonday);
+
+  Serial.println(F("}"));
 }

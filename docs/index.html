@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LED Shelf Controller</title>
+  <style>
+  * {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body {
+    background: #f5f5f5;
+    margin: 0;
+    padding: 20px;
+  }
+
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+
+  h1 {
+    color: #333;
+    border-bottom: 2px solid #4285f4;
+    padding-bottom: 10px;
+  }
+
+  h2 {
+    color: #555;
+    font-size: 1.1em;
+    margin-top: 20px;
+  }
+
+  section {
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin: 5px 5px 5px 0;
+    transition: background 0.2s;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: #4285f4;
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: #3367d6;
+  }
+
+  .btn-secondary {
+    background: #f1f3f4;
+    color: #333;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: #e8eaed;
+  }
+
+  .status {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 10px;
+  }
+
+  .status.connected {
+    background: #34a853;
+    color: white;
+  }
+
+  .status.disconnected {
+    background: #ea4335;
+    color: white;
+  }
+
+  .status-card {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 10px;
+  }
+
+  .status-card p {
+    margin: 8px 0;
+  }
+
+  .form-group {
+    margin: 10px 0;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+
+  .form-group input {
+    padding: 8px;
+    width: 100%;
+    max-width: 300px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  .console {
+    background: #1e1e1e;
+    color: #00ff00;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    padding: 10px;
+    height: 150px;
+    overflow-y: auto;
+    border-radius: 4px;
+    margin-top: 10px;
+  }
+
+  .console-input-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .console-input-group input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  .warning {
+    background: #fef7e0;
+    border: 1px solid #f9ab00;
+    color: #b06000;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 20px;
+  }
+
+  .result-message {
+    margin-top: 10px;
+    font-style: italic;
+  }
+
+  .result-message.success {
+    color: #34a853;
+  }
+
+  .result-message.error {
+    color: #ea4335;
+  }
+
+  /* Pile color indicators */
+  .pile-green {
+    color: #34a853;
+    font-weight: bold;
+  }
+
+  .pile-blue {
+    color: #4285f4;
+    font-weight: bold;
+  }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>LED Shelf Controller</h1>
+
+    <!-- Connection Section -->
+    <section id="connection-section">
+      <h2>Serial Connection</h2>
+      <button id="connect-btn" class="btn btn-primary">Connect to Arduino</button>
+      <button id="disconnect-btn" class="btn btn-secondary" disabled>Disconnect</button>
+      <span id="connection-status" class="status disconnected">Disconnected</span>
+    </section>
+
+    <!-- Status Section -->
+    <section id="status-section">
+      <h2>Device Status</h2>
+      <button id="refresh-status-btn" class="btn" disabled>Refresh Status</button>
+      <div id="status-display" class="status-card">
+        <p><strong>RTC DateTime:</strong> <span id="rtc-datetime">--</span></p>
+        <p><strong>LEDs Active:</strong> <span id="leds-active">--</span></p>
+        <p><strong>Receive Pile:</strong> <span id="receive-pile">--</span></p>
+        <p><strong>Process Pile:</strong> <span id="process-pile">--</span></p>
+      </div>
+    </section>
+
+    <!-- Time Sync Section -->
+    <section id="time-sync-section">
+      <h2>Set RTC Time</h2>
+      <form id="time-form">
+        <div class="form-group">
+          <label for="datetime-input">Date &amp; Time:</label>
+          <input type="datetime-local" id="datetime-input" required>
+        </div>
+        <button type="button" id="sync-browser-time-btn" class="btn">Use Browser Time</button>
+        <button type="submit" id="set-time-btn" class="btn btn-primary" disabled>Set RTC Time</button>
+      </form>
+      <p id="time-result" class="result-message"></p>
+    </section>
+
+    <!-- Console/Log Section -->
+    <section id="console-section">
+      <h2>Serial Console</h2>
+      <div id="console-output" class="console"></div>
+      <div class="console-input-group">
+        <input type="text" id="manual-command" placeholder="Enter command...">
+        <button id="send-command-btn" class="btn" disabled>Send</button>
+      </div>
+    </section>
+
+    <!-- Browser Compatibility Warning -->
+    <div id="compatibility-warning" class="warning" style="display: none;">
+      <strong>Warning:</strong> Web Serial API is not supported in this browser.
+      Please use Chrome, Edge, or Opera.
+    </div>
+  </div>
+
+  <script>
+// ===========================================
+// Global State
+// ===========================================
+let port = null;
+let reader = null;
+let writer = null;
+let readableStreamClosed = null;
+let writableStreamClosed = null;
+let isConnected = false;
+let responseBuffer = '';
+
+// ===========================================
+// DOM Elements
+// ===========================================
+const connectBtn = document.getElementById('connect-btn');
+const disconnectBtn = document.getElementById('disconnect-btn');
+const connectionStatus = document.getElementById('connection-status');
+const refreshStatusBtn = document.getElementById('refresh-status-btn');
+const setTimeBtn = document.getElementById('set-time-btn');
+const syncBrowserTimeBtn = document.getElementById('sync-browser-time-btn');
+const datetimeInput = document.getElementById('datetime-input');
+const timeResult = document.getElementById('time-result');
+const consoleOutput = document.getElementById('console-output');
+const manualCommand = document.getElementById('manual-command');
+const sendCommandBtn = document.getElementById('send-command-btn');
+const compatibilityWarning = document.getElementById('compatibility-warning');
+
+// ===========================================
+// Initialization
+// ===========================================
+document.addEventListener('DOMContentLoaded', init);
+
+function init() {
+  // Check Web Serial API support
+  if (!('serial' in navigator)) {
+    compatibilityWarning.style.display = 'block';
+    connectBtn.disabled = true;
+    return;
+  }
+
+  // Bind event listeners
+  connectBtn.addEventListener('click', connect);
+  disconnectBtn.addEventListener('click', disconnect);
+  refreshStatusBtn.addEventListener('click', requestStatus);
+  document.getElementById('time-form').addEventListener('submit', handleTimeSubmit);
+  syncBrowserTimeBtn.addEventListener('click', populateBrowserTime);
+  sendCommandBtn.addEventListener('click', sendManualCommand);
+  manualCommand.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendManualCommand();
+  });
+
+  // Initialize datetime input with current browser time
+  populateBrowserTime();
+}
+
+// ===========================================
+// Serial Connection Management
+// ===========================================
+async function connect() {
+  try {
+    // Request port (triggers browser permission dialog)
+    port = await navigator.serial.requestPort();
+
+    // Open connection at 9600 baud
+    await port.open({ baudRate: 9600 });
+
+    // Set up reader (using TextDecoderStream for automatic text decoding)
+    const textDecoder = new TextDecoderStream();
+    readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+    reader = textDecoder.readable.getReader();
+
+    // Set up writer (using TextEncoderStream for automatic text encoding)
+    const textEncoder = new TextEncoderStream();
+    writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+    writer = textEncoder.writable.getWriter();
+
+    updateConnectionState(true);
+    logToConsole('Connected to Arduino at 9600 baud');
+
+    // Start reading loop
+    readLoop();
+
+    // Auto-request status after connecting
+    setTimeout(requestStatus, 500);
+
+  } catch (error) {
+    logToConsole('Connection error: ' + error.message, 'error');
+    console.error('Connection error:', error);
+  }
+}
+
+async function disconnect() {
+  try {
+    if (reader) {
+      await reader.cancel();
+      await readableStreamClosed.catch(() => {}); // Ignore errors
+      reader = null;
+    }
+
+    if (writer) {
+      await writer.close();
+      await writableStreamClosed.catch(() => {}); // Ignore errors
+      writer = null;
+    }
+
+    if (port) {
+      await port.close();
+      port = null;
+    }
+
+    updateConnectionState(false);
+    logToConsole('Disconnected from Arduino');
+
+  } catch (error) {
+    logToConsole('Disconnect error: ' + error.message, 'error');
+    console.error('Disconnect error:', error);
+  }
+}
+
+function updateConnectionState(connected) {
+  isConnected = connected;
+
+  connectBtn.disabled = connected;
+  disconnectBtn.disabled = !connected;
+  refreshStatusBtn.disabled = !connected;
+  setTimeBtn.disabled = !connected;
+  sendCommandBtn.disabled = !connected;
+
+  connectionStatus.textContent = connected ? 'Connected' : 'Disconnected';
+  connectionStatus.className = 'status ' + (connected ? 'connected' : 'disconnected');
+}
+
+// ===========================================
+// Serial Read/Write Operations
+// ===========================================
+async function readLoop() {
+  while (port && port.readable) {
+    try {
+      const { value, done } = await reader.read();
+
+      if (done) {
+        logToConsole('Reader stream closed');
+        break;
+      }
+
+      if (value) {
+        handleIncomingData(value);
+      }
+
+    } catch (error) {
+      if (error.name !== 'NetworkError') {
+        logToConsole('Read error: ' + error.message, 'error');
+      }
+      break;
+    }
+  }
+}
+
+function handleIncomingData(data) {
+  responseBuffer += data;
+
+  // Process complete lines
+  let newlineIndex;
+  while ((newlineIndex = responseBuffer.indexOf('\n')) !== -1) {
+    const line = responseBuffer.substring(0, newlineIndex).trim();
+    responseBuffer = responseBuffer.substring(newlineIndex + 1);
+
+    if (line) {
+      logToConsole('RX: ' + line);
+      processResponse(line);
+    }
+  }
+}
+
+function processResponse(line) {
+  // Check if it's a JSON status response
+  if (line.startsWith('{') && line.endsWith('}')) {
+    try {
+      const status = JSON.parse(line);
+      updateStatusDisplay(status);
+    } catch (e) {
+      console.error('JSON parse error:', e);
+    }
+  }
+}
+
+async function sendCommand(command) {
+  if (!writer || !isConnected) {
+    logToConsole('Not connected', 'error');
+    return;
+  }
+
+  try {
+    // Add newline terminator as expected by Arduino
+    await writer.write(command + '\n');
+    logToConsole('TX: ' + command);
+  } catch (error) {
+    logToConsole('Write error: ' + error.message, 'error');
+    console.error('Write error:', error);
+  }
+}
+
+// ===========================================
+// Status Functions
+// ===========================================
+function requestStatus() {
+  sendCommand('STATUS');
+}
+
+function updateStatusDisplay(status) {
+  document.getElementById('rtc-datetime').textContent = status.datetime || '--';
+
+  const ledsActiveEl = document.getElementById('leds-active');
+  ledsActiveEl.textContent = status.leds_active ? 'Yes' : 'No';
+  ledsActiveEl.style.color = status.leds_active ? '#34a853' : '#ea4335';
+
+  const receivePileEl = document.getElementById('receive-pile');
+  receivePileEl.textContent = 'Pile ' + status.receive_pile;
+  receivePileEl.className = 'pile-green';
+
+  const processPileEl = document.getElementById('process-pile');
+  processPileEl.textContent = 'Pile ' + status.process_pile;
+  processPileEl.className = 'pile-blue';
+}
+
+// ===========================================
+// Time Sync Functions
+// ===========================================
+function populateBrowserTime() {
+  const now = new Date();
+  // Format for datetime-local input: YYYY-MM-DDTHH:MM
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  datetimeInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function handleTimeSubmit(event) {
+  event.preventDefault();
+
+  const inputValue = datetimeInput.value;
+  if (!inputValue) {
+    showTimeResult('Please enter a date and time', 'error');
+    return;
+  }
+
+  // Convert from datetime-local format to Arduino format
+  // Input: "2023-10-25T14:30" -> Output: "2023-10-25 14:30:00"
+  const dateObj = new Date(inputValue);
+
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  const seconds = '00';
+
+  const command = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+
+  sendCommand(command);
+  showTimeResult('Time command sent: ' + command, 'success');
+
+  // Request status after a short delay to confirm update
+  setTimeout(requestStatus, 1000);
+}
+
+function showTimeResult(message, type) {
+  timeResult.textContent = message;
+  timeResult.className = 'result-message ' + type;
+}
+
+// ===========================================
+// Manual Command Functions
+// ===========================================
+function sendManualCommand() {
+  const command = manualCommand.value.trim();
+  if (command) {
+    sendCommand(command);
+    manualCommand.value = '';
+  }
+}
+
+// ===========================================
+// Console Logging
+// ===========================================
+function logToConsole(message, type = 'info') {
+  const timestamp = new Date().toLocaleTimeString();
+  const prefix = type === 'error' ? '[ERROR] ' : '';
+  const color = type === 'error' ? '#ff6b6b' : '#00ff00';
+
+  const entry = document.createElement('div');
+  entry.style.color = color;
+  entry.textContent = `[${timestamp}] ${prefix}${message}`;
+
+  consoleOutput.appendChild(entry);
+  consoleOutput.scrollTop = consoleOutput.scrollHeight;
+
+  // Limit console entries
+  while (consoleOutput.children.length > 100) {
+    consoleOutput.removeChild(consoleOutput.firstChild);
+  }
+}
+  </script>
+</body>
+</html>

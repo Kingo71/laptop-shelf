@@ -112,3 +112,23 @@ Dependencies are auto-installed on first build.
 - **Buffer management**: Serial input uses a String buffer with newline detection to handle commands atomically
 - **RTC initialization**: If RTC loses power, it auto-sets to compile time (`__DATE__` and `__TIME__` macros)
 - **Error indication**: RTC initialization failure causes solid red LEDs and halts execution
+
+## Web Controller (GitHub Pages)
+
+A web application for controlling the LED shelf via Chrome's Web Serial API.
+
+**Location:** [docs/index.html](docs/index.html)
+
+**Setup:** Enable GitHub Pages in repo settings:
+1. Go to Settings > Pages
+2. Source: "Deploy from a branch"
+3. Branch: `main`, Folder: `/docs`
+4. Save
+
+**URL:** `https://<username>.github.io/laptop-shelf/`
+
+**Features:**
+- Connect to Arduino via Web Serial API (Chrome/Edge/Opera only)
+- View real-time status: RTC time, LED state, receive/process piles
+- Sync browser time to Arduino RTC
+- Serial console for debugging
